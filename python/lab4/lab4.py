@@ -4,9 +4,8 @@ LOUD_LITERALS_STRING = "aeiouy"
 def does_string_contain_loud_symbols(string):  # i didnt know a better naming
     counter = 0
     for literal in string.lower():
-        for loud_literal in LOUD_LITERALS_STRING:
-            if loud_literal == literal:
-                counter += 1
+        if loud_literal in LOUD_LITERALS_STRING:
+            counter += 1
 
     return counter
 
