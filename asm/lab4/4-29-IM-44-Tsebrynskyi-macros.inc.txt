@@ -1,0 +1,43 @@
+;; =====================================================================
+;; EXTERNAL MACRO FILE (Requirement of point 8)
+;; =====================================================================
+
+mShowData macro textAddr
+invoke MessageBox, 0, textAddr, addr NazarSuccessTitle, MB_OK
+endm
+
+mXorProcess macro srcAddr, keyAddr, destAddr
+LOCAL L_Next, L_End
+lea esi, srcAddr
+lea edi, destAddr
+lea ebx, keyAddr
+L_Next:
+mov al, [esi]
+test al, al      ;; Hidden comment: check for null-terminator
+jz L_End
+xor al, [ebx]    ; Visible comment: perform XOR
+stosb
+inc esi
+inc ebx
+cmp byte ptr [ebx], 0
+jne L_Next
+lea ebx, keyAddr
+jmp L_Next
+L_End:
+mov byte ptr [edi], 0
+endm
+
+mValidatePassword macro inputBuf, targetBuf
+LOCAL L_Bad, L_Finish
+invoke lstrcmp, addr inputBuf, addr targetBuf
+test eax, eax
+jnz L_Bad
+mShowData addr NazarName
+mShowData addr NazarBirth
+mShowData addr NazarGroup
+mShowData addr NazarID
+jmp L_Finish
+L_Bad:
+invoke MessageBox, 0, addr NazarPasswordIncorrectCase, addr NazarErrorTitle, MB_ICONERROR
+L_Finish:
+endm
