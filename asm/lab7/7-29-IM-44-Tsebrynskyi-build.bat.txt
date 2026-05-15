@@ -1,0 +1,31 @@
+@echo off
+
+echo [1] CLEANING OLD FILES...
+if exist "7-29-IM-44-Tsebrynskyi-main.obj" del "7-29-IM-44-Tsebrynskyi-main.obj"
+if exist "7-29-IM-44-Tsebrynskyi-proc.obj" del "7-29-IM-44-Tsebrynskyi-proc.obj"
+if exist "7-29-IM-44-Tsebrynskyi-main.exe" del "7-29-IM-44-Tsebrynskyi-main.exe"
+
+echo [2] ASSEMBLING MAIN...
+ml /c /coff "7-29-IM-44-Tsebrynskyi-main.asm"
+if errorlevel 1 goto error
+
+echo [3] ASSEMBLING PROC...
+ml /c /coff "7-29-IM-44-Tsebrynskyi-proc.asm"
+if errorlevel 1 goto error
+
+echo [4] LINKING...
+link32 /subsystem:windows "7-29-IM-44-Tsebrynskyi-main.obj" "7-29-IM-44-Tsebrynskyi-proc.obj"
+if errorlevel 1 goto error
+
+echo [5] RUNNING...
+"7-29-IM-44-Tsebrynskyi-main.exe"
+goto end
+
+:error
+echo.
+echo !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+echo !      BUILD FAILED! Check code   !
+echo !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+pause
+
+:end

@@ -1,0 +1,240 @@
+.386
+.model flat, stdcall
+option casemap:none
+
+include \masm32\include\windows.inc
+include \masm32\include\user32.inc
+include \masm32\include\kernel32.inc
+include \masm32\include\msvcrt.inc
+includelib \masm32\lib\user32.lib
+includelib \masm32\lib\kernel32.lib
+includelib \masm32\lib\msvcrt.lib
+
+tsebrynskyi_den_proc PROTO
+
+; Експорт даних для другого модуля (УСІ змінні тепер по 8 байт - REAL8/QWORD)
+public user_val_b, fpu_const_2, fpu_const_5, global_denominator
+
+.data
+    ; Вхідні дані (ЗБЕРЕЖЕНО ФОРМАТ З ЛАБИ 6 - REAL8)
+    input_a REAL8 1.25, 5.45, 1.15, 5.25, 1.25, 1.25
+    input_b REAL8 1.15, -3.15, -4.12, 2.45, -2.50, 1.15
+    input_c REAL8 2.15, -2.12, 3.35, -1.35, 2.15, 2.15
+    input_d REAL8 1.33, -1.45, 2.15, 1.12, 1.33, 4.33
+
+    ; Змінні для взаємодії між модулями (REAL8)
+    user_val_b         REAL8 0.0
+    global_denominator REAL8 0.0
+
+    fpu_const_2        REAL8 2.0
+    fpu_const_3        REAL8 3.0
+    fpu_const_5        REAL8 5.0
+    fpu_const_7        REAL8 7.0
+
+    msg_success db "=== System Report (Var 29) ===", 13, 10
+                db "Formula: R = [sqrt(7-2d) + 3c - a] / (2b+5)", 13, 10
+                db "Storage Mapping: [a, c -> Stack], [d -> EAX:EDX], [b -> EXTRN]", 13, 10
+                db "-----------------------------------------", 13, 10
+                db "Input Vars (REAL8): a=%.2f | b=%.2f | c=%.2f | d=%.2f", 13, 10
+                db "Calc Numerator (FPU): %.6f", 13, 10
+                db "Calc Denominator (Global): %.6f", 13, 10
+                db "-----------------------------------------", 13, 10
+                db "FINAL RESULT (R) = %.10f", 0
+
+    msg_err_div0 db "=== System Report (Var 29) ===", 13, 10
+                 db "Input Vars: a=%.2f | b=%.2f | c=%.2f | d=%.2f", 13, 10
+                 db "-----------------------------------------", 13, 10
+                 db "FATAL ERROR: Division by Zero (2b+5 = 0)!", 13, 10
+                 db "Execution stopped.", 0
+
+    msg_err_neg  db "=== System Report (Var 29) ===", 13, 10
+                 db "Input Vars: a=%.2f | b=%.2f | c=%.2f | d=%.2f", 13, 10
+                 db "-----------------------------------------", 13, 10
+                 db "FATAL ERROR: Negative Radicand (7-2d < 0)!", 13, 10
+                 db "Execution stopped.", 0
+
+    app_title  db "KPI Lab 7 - Nazar Tsebrynskyi (Var 29)", 0
+
+.data?
+    output_buffer db 512 dup(?)
+    saved_num     REAL8 ?
+    saved_den     REAL8 ?
+    final_res     REAL8 ?
+
+.code
+
+; =======================================================
+; ПРОЦЕДУРА 1 (Через регістри): Обчислення sqrt(7 - 2d)
+; Оскільки число 8-байтне, воно передається через ДВА 32-бітні регістри: EAX та EDX
+; =======================================================
+calc_part_sqrt proc
+    ; Відновлюємо 8-байтне число у пам'ять для FPU
+    mov dword ptr [saved_num], eax
+    mov dword ptr [saved_num + 4], edx
+
+    fld qword ptr [fpu_const_7]
+    fld qword ptr [fpu_const_2]
+    fmul qword ptr [saved_num]     ; QWORD = 8 байт
+    fsubp st(1), st(0)
+
+    ftst
+    fstsw ax
+    sahf
+    jb sqrt_fail
+
+    fsqrt
+    mov eax, 0
+    ret
+sqrt_fail:
+    fstp st(0)
+    mov eax, 2
+    ret
+calc_part_sqrt endp
+
+; =======================================================
+; ПРОЦЕДУРА 2 (Через стек): Обчислення (3c - a)
+; У стеку знаходяться два 8-байтні числа.
+; =======================================================
+calc_part_linear proc
+    push ebp
+    mov ebp, esp
+
+    ; [ebp+8]  = змінна 'a' (8 байт)
+    ; [ebp+16] = змінна 'c' (8 байт)
+
+    fld qword ptr [fpu_const_3]
+    fmul qword ptr [ebp+16]
+    fsub qword ptr [ebp+8]
+
+    mov eax, 0
+    pop ebp
+    ret 16                       ; Очищуємо 16 байт (2 параметри по 8 байт)
+calc_part_linear endp
+
+; =======================================================
+; ГОЛОВНА ПРОГРАМА
+; =======================================================
+start:
+    finit
+    xor esi, esi
+    mov edi, 6
+
+main_loop:
+    ; --- КРОК 1: Знаменник (Метод EXTRN/PUBLIC - передача 8-байтної змінної) ---
+    mov eax, dword ptr [input_b + esi]
+    mov edx, dword ptr [input_b + esi + 4]
+    mov dword ptr [user_val_b], eax
+    mov dword ptr [user_val_b + 4], edx
+
+    invoke tsebrynskyi_den_proc
+    cmp eax, 1
+    jne handle_err_div0
+
+    fld qword ptr [global_denominator]
+    fstp qword ptr [saved_den]
+
+    ; --- КРОК 2: Чисельник частина 1 (РЕГІСТРИ - EAX:EDX) ---
+    mov eax, dword ptr [input_d + esi]       ; Молодші 4 байти
+    mov edx, dword ptr [input_d + esi + 4]   ; Старші 4 байти
+    call calc_part_sqrt
+    cmp eax, 2
+    je handle_err_neg
+
+    ; --- КРОК 3: Чисельник частина 2 (СТЕК - PUSH 8 байт) ---
+    ; Передаємо c (8 байт)
+    push dword ptr [input_c + esi + 4]
+    push dword ptr [input_c + esi]
+    ; Передаємо a (8 байт)
+    push dword ptr [input_a + esi + 4]
+    push dword ptr [input_a + esi]
+    call calc_part_linear
+
+    ; Додаємо частини чисельника
+    faddp st(1), st(0)
+    fst qword ptr [saved_num]
+
+    ; --- КРОК 4: Фінальне ділення ---
+    fld qword ptr [saved_den]
+    fdivp st(1), st(0)
+    fstp qword ptr [final_res]
+
+    ; =======================================================
+    ; ВИВІД УСПІШНОГО РЕЗУЛЬТАТУ
+    ; =======================================================
+    fld qword ptr [final_res]
+    sub esp, 8
+    fstp qword ptr [esp]
+    fld qword ptr [saved_den]
+    sub esp, 8
+    fstp qword ptr [esp]
+    fld qword ptr [saved_num]
+    sub esp, 8
+    fstp qword ptr [esp]
+    fld qword ptr [input_d + esi]
+    sub esp, 8
+    fstp qword ptr [esp]
+    fld qword ptr [input_c + esi]
+    sub esp, 8
+    fstp qword ptr [esp]
+    fld qword ptr [input_b + esi]
+    sub esp, 8
+    fstp qword ptr [esp]
+    fld qword ptr [input_a + esi]
+    sub esp, 8
+    fstp qword ptr [esp]
+
+    push offset msg_success
+    push offset output_buffer
+    call crt_sprintf
+    add esp, 64
+    invoke MessageBox, 0, addr output_buffer, addr app_title, MB_OK
+    jmp step_forward
+
+handle_err_div0:
+    fld qword ptr [input_d + esi]
+    sub esp, 8
+    fstp qword ptr [esp]
+    fld qword ptr [input_c + esi]
+    sub esp, 8
+    fstp qword ptr [esp]
+    fld qword ptr [input_b + esi]
+    sub esp, 8
+    fstp qword ptr [esp]
+    fld qword ptr [input_a + esi]
+    sub esp, 8
+    fstp qword ptr [esp]
+
+    push offset msg_err_div0
+    push offset output_buffer
+    call crt_sprintf
+    add esp, 40
+    invoke MessageBox, 0, addr output_buffer, addr app_title, MB_ICONSTOP
+    jmp step_forward
+
+handle_err_neg:
+    fld qword ptr [input_d + esi]
+    sub esp, 8
+    fstp qword ptr [esp]
+    fld qword ptr [input_c + esi]
+    sub esp, 8
+    fstp qword ptr [esp]
+    fld qword ptr [input_b + esi]
+    sub esp, 8
+    fstp qword ptr [esp]
+    fld qword ptr [input_a + esi]
+    sub esp, 8
+    fstp qword ptr [esp]
+
+    push offset msg_err_neg
+    push offset output_buffer
+    call crt_sprintf
+    add esp, 40
+    invoke MessageBox, 0, addr output_buffer, addr app_title, MB_ICONSTOP
+
+step_forward:
+    add esi, 8                 ; КРОК МАСИВУ ТЕПЕР 8 БАЙТІВ (REAL8)
+    dec edi
+    jnz main_loop
+
+    invoke ExitProcess, 0
+end start

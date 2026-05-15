@@ -1,0 +1,32 @@
+.386
+.model flat, stdcall
+option casemap:none
+
+public tsebrynskyi_den_proc
+
+; Всі імпортовані змінні тепер QWORD (8 байт)
+extrn user_val_b:QWORD, fpu_const_2:QWORD, fpu_const_5:QWORD, global_denominator:QWORD
+
+.code
+
+tsebrynskyi_den_proc proc
+    fld qword ptr [user_val_b]
+    fmul qword ptr [fpu_const_2]
+    fadd qword ptr [fpu_const_5]
+
+    ftst
+    fstsw ax
+    sahf
+    je denom_is_zero
+
+    fstp qword ptr [global_denominator]
+    mov eax, 1
+    ret
+
+denom_is_zero:
+    fstp st(0)
+    mov eax, 0
+    ret
+tsebrynskyi_den_proc endp
+
+end
